@@ -66,12 +66,17 @@ const OrderCard = ({ order, isSelected, onSelect, onDelete, onDetail }) => (
 
         {/* 訂單資訊 - 點擊查看詳情 */}
         <div className="flex-1 cursor-pointer" onClick={onDetail}>
+          {order.orderNumber && (
+            <p className="text-xs text-blue-600 font-mono mb-1">{order.orderNumber}</p>
+          )}
           <h3 className="font-bold text-lg text-gray-900">{order.customerName || '未知客戶'}</h3>
           <p className="text-gray-700">{order.productName || '未知產品'}</p>
           <p className="text-sm text-gray-500 font-mono">PO: {order.poNumber || '-'}</p>
-          <div className="flex gap-4 mt-2 text-sm text-gray-600">
+          <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-600">
             <span className="font-medium">數量: {order.quantity || 0}</span>
-            <span className="font-medium">尺寸: {order.length}×{order.width}×{order.height}</span>
+            {order.expectedShipDate && (
+              <span className="text-orange-600 font-medium">出貨: {order.expectedShipDate}</span>
+            )}
           </div>
         </div>
       </div>
@@ -100,10 +105,22 @@ const ScannerModal = ({ onClose, onSave }) => {
   const [mode, setMode] = useState('scan'); // 'scan' | 'form'
   const [scanning, setScanning] = useState(false);
   const [form, setForm] = useState({
+    orderNumber: '', workOrderNumber: '', orderDate: '', expectedShipDate: '',
     customerName: '', productName: '', poNumber: '',
     length: '', width: '', height: '', quantity: '', fluteType: ''
   });
   const html5QrCodeRef = useRef(null);
+
+  // 自動產生訂單編號 (格式: ORD-YYYYMMDD-XXX)
+  const generateOrderNumber = () => {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `ORD-${dateStr}-${random}`;
+  };
+
+  // 取得今天日期 (YYYY-MM-DD 格式)
+  const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
   // 啟動相機掃描
   const startScanner = async () => {
@@ -147,6 +164,10 @@ const ScannerModal = ({ onClose, onSave }) => {
     try {
       const data = JSON.parse(decodedText);
       setForm({
+        orderNumber: generateOrderNumber(),
+        workOrderNumber: data.workOrderNumber || data.workOrder || '',
+        orderDate: getTodayDate(),
+        expectedShipDate: data.expectedShipDate || data.shipDate || '',
         customerName: data.customerName || data.customer || '',
         productName: data.productName || data.product || '',
         poNumber: data.poNumber || data.po || '',
@@ -158,8 +179,13 @@ const ScannerModal = ({ onClose, onSave }) => {
       });
       setMode('form');
     } catch {
-      // 如果不是 JSON，直接當作 PO 號碼
-      setForm(prev => ({ ...prev, poNumber: decodedText }));
+      // 如果不是 JSON，直接當作 PO 號碼，並自動產生訂單編號
+      setForm(prev => ({
+        ...prev,
+        orderNumber: generateOrderNumber(),
+        orderDate: getTodayDate(),
+        poNumber: decodedText
+      }));
       setMode('form');
     }
   };
@@ -211,6 +237,7 @@ const ScannerModal = ({ onClose, onSave }) => {
       await onSave(form);
       // 清空表單，回到掃描模式
       setForm({
+        orderNumber: '', workOrderNumber: '', orderDate: '', expectedShipDate: '',
         customerName: '', productName: '', poNumber: '',
         length: '', width: '', height: '', quantity: '', fluteType: ''
       });
@@ -254,7 +281,14 @@ const ScannerModal = ({ onClose, onSave }) => {
                   <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
                 </label>
 
-                <button onClick={() => setMode('form')}
+                <button onClick={() => {
+                    setForm(prev => ({
+                      ...prev,
+                      orderNumber: generateOrderNumber(),
+                      orderDate: getTodayDate()
+                    }));
+                    setMode('form');
+                  }}
                   className="w-full border-2 border-gray-400 bg-white text-gray-700 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:border-blue-600 hover:text-blue-600 transition-all">
                   <Plus className="w-5 h-5" /> 手動輸入
                 </button>
@@ -268,6 +302,34 @@ const ScannerModal = ({ onClose, onSave }) => {
           </div>
         ) : (
           <div className="p-4 space-y-4">
+            {/* 訂單編號區塊 */}
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1">訂單編號</label>
+                  <input className="w-full border border-blue-300 rounded p-2 text-sm text-gray-900 font-mono bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.orderNumber} onChange={e => setForm({...form, orderNumber: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1">工單編號</label>
+                  <input className="w-full border border-blue-300 rounded p-2 text-sm text-gray-900 font-mono bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.workOrderNumber} onChange={e => setForm({...form, workOrderNumber: e.target.value})} placeholder="選填" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1">訂單建立日</label>
+                  <input type="date" className="w-full border border-blue-300 rounded p-2 text-sm text-gray-900 bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.orderDate} onChange={e => setForm({...form, orderDate: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1">預計出貨日</label>
+                  <input type="date" className="w-full border border-blue-300 rounded p-2 text-sm text-gray-900 bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.expectedShipDate} onChange={e => setForm({...form, expectedShipDate: e.target.value})} />
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">客戶名稱 *</label>
               <input className="w-full border-2 border-gray-300 rounded-lg p-3 text-gray-900 focus:border-blue-600 focus:outline-none transition-all"
@@ -334,6 +396,10 @@ const ScannerModal = ({ onClose, onSave }) => {
 const OrderDetailModal = ({ order, onClose, onSave, onDelete }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
+    orderNumber: order.orderNumber || '',
+    workOrderNumber: order.workOrderNumber || '',
+    orderDate: order.orderDate || '',
+    expectedShipDate: order.expectedShipDate || '',
     customerName: order.customerName || '',
     productName: order.productName || '',
     poNumber: order.poNumber || '',
@@ -397,6 +463,50 @@ const OrderDetailModal = ({ order, onClose, onSave, onDelete }) => {
               派車單號: {order.dispatchId}
             </p>
           )}
+
+          {/* 訂單編號區塊 */}
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-blue-700 mb-1">訂單編號</label>
+                {isEditing ? (
+                  <input className="w-full border border-blue-300 rounded p-2 text-sm font-mono bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.orderNumber} onChange={e => setForm({...form, orderNumber: e.target.value})} />
+                ) : (
+                  <p className="text-gray-900 font-mono text-sm p-2 bg-white rounded">{order.orderNumber || '-'}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-blue-700 mb-1">工單編號</label>
+                {isEditing ? (
+                  <input className="w-full border border-blue-300 rounded p-2 text-sm font-mono bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.workOrderNumber} onChange={e => setForm({...form, workOrderNumber: e.target.value})} />
+                ) : (
+                  <p className="text-gray-900 font-mono text-sm p-2 bg-white rounded">{order.workOrderNumber || '-'}</p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div>
+                <label className="block text-xs font-semibold text-blue-700 mb-1">訂單建立日</label>
+                {isEditing ? (
+                  <input type="date" className="w-full border border-blue-300 rounded p-2 text-sm bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.orderDate} onChange={e => setForm({...form, orderDate: e.target.value})} />
+                ) : (
+                  <p className="text-gray-900 text-sm p-2 bg-white rounded">{order.orderDate || '-'}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-blue-700 mb-1">預計出貨日</label>
+                {isEditing ? (
+                  <input type="date" className="w-full border border-blue-300 rounded p-2 text-sm bg-white focus:border-blue-600 focus:outline-none"
+                    value={form.expectedShipDate} onChange={e => setForm({...form, expectedShipDate: e.target.value})} />
+                ) : (
+                  <p className="text-gray-900 text-sm p-2 bg-white rounded">{order.expectedShipDate || '-'}</p>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* 表單欄位 */}
           <div>
@@ -585,7 +695,9 @@ export default function App() {
       filtered = filtered.filter(o =>
         (o.customerName || '').toLowerCase().includes(keyword) ||
         (o.productName || '').toLowerCase().includes(keyword) ||
-        (o.poNumber || '').toLowerCase().includes(keyword)
+        (o.poNumber || '').toLowerCase().includes(keyword) ||
+        (o.orderNumber || '').toLowerCase().includes(keyword) ||
+        (o.workOrderNumber || '').toLowerCase().includes(keyword)
       );
     }
 
