@@ -13,6 +13,8 @@
 5. [檔案結構](#檔案結構)
 6. [部署流程](#部署流程)
 7. [資料流程](#資料流程)
+8. [使用者管理系統](#使用者管理系統)
+9. [功能清單](#功能清單)
 
 ---
 
@@ -21,13 +23,18 @@
 ### 🎯 目標
 建立一個倉儲管理 PWA 應用，支援：
 - QR Code 掃描入庫
-- 訂單管理（新增、刪除、派車）
+- 訂單管理（新增、編輯、刪除、派車）
+- 使用者管理（Email 登入、角色權限）
+- 操作紀錄追蹤
 - 即時資料同步
 - 手機安裝使用
 
 ### 👥 使用情境
 ```
-倉庫人員 → 手機掃描 QR Code → 資料自動填入 → 儲存到雲端 → 主管即時查看
+管理員 → 建立帳號 → 分配角色權限
+倉管人員 → Email 登入 → 掃描 QR Code → 資料自動填入 → 儲存到雲端
+司機 → Email 登入 → 查看待派車訂單
+主管 → 查看操作紀錄 → 管理使用者
 ```
 
 ---
@@ -40,55 +47,64 @@ flowchart TB
     subgraph 使用者端
         A[📱 手機/電腦瀏覽器]
     end
-    
+
     subgraph 前端應用 - Vercel
         B[React 應用程式]
         C[html5-qrcode 掃描器]
         D[Tailwind CSS 樣式]
     end
-    
+
     subgraph 後端服務 - Firebase
         E[(Firestore 資料庫)]
         F[Authentication 身份驗證]
+        G[(users 使用者)]
+        H[(activity_logs 操作紀錄)]
     end
-    
+
     subgraph 開發工具
-        G[VS Code 編輯器]
-        H[GitHub 版本控制]
-        I[Vite 建置工具]
+        I[VS Code 編輯器]
+        J[GitHub 版本控制]
+        K[Vite 建置工具]
     end
-    
+
     A <-->|HTTPS| B
     B --> C
     B --> D
     B <-->|即時同步| E
-    B <-->|匿名登入| F
-    G -->|編寫程式| B
-    G -->|git push| H
-    H -->|自動部署| B
-    I -->|npm run build| B
+    B <-->|Email登入| F
+    B <-->|角色權限| G
+    B <-->|操作紀錄| H
+    I -->|編寫程式| B
+    I -->|git push| J
+    J -->|自動部署| B
+    K -->|npm run build| B
 ```
 
 ### 使用者操作流程
 ```mermaid
 flowchart LR
     A[開啟 APP] --> B{已登入?}
-    B -->|否| C[點擊登入]
-    C --> D[匿名登入成功]
-    D --> E[訂單列表]
-    B -->|是| E
-    E --> F[點擊相機按鈕]
-    F --> G{選擇方式}
-    G -->|掃描| H[開啟相機掃描 QR]
-    G -->|上傳| I[選擇圖片]
-    G -->|手動| J[直接填表單]
-    H --> K[解析 QR 內容]
-    I --> K
-    K --> L[自動填入表單]
-    J --> L
-    L --> M{確認資料}
-    M -->|儲存並下一筆| H
-    M -->|儲存並返回| E
+    B -->|否| C[Email/密碼登入]
+    B -->|否| C2[註冊新帳號]
+    C --> D[驗證成功]
+    C2 --> D
+    D --> E[載入角色權限]
+    E --> F[訂單列表]
+    B -->|是| F
+    F --> G{角色權限}
+    G -->|管理員/倉管| H[點擊相機按鈕]
+    G -->|司機| I[只能檢視]
+    H --> J{選擇方式}
+    J -->|掃描| K[開啟相機掃描 QR]
+    J -->|上傳| L[選擇圖片]
+    J -->|手動| M[直接填表單]
+    K --> N[解析 QR 內容]
+    L --> N
+    N --> O[自動填入表單]
+    M --> O
+    O --> P{確認資料}
+    P -->|儲存並下一筆| K
+    P -->|儲存並返回| F
 ```
 
 ---
@@ -103,7 +119,7 @@ flowchart LR
 | **圖示庫** | Lucide React | 提供各種 icon |
 | **掃描功能** | html5-qrcode | QR Code 掃描與解析 |
 | **資料庫** | Firebase Firestore | 雲端 NoSQL 資料庫 |
-| **身份驗證** | Firebase Auth | 匿名登入功能 |
+| **身份驗證** | Firebase Auth | Email/密碼登入 |
 | **版本控制** | Git + GitHub | 程式碼管理與協作 |
 | **部署平台** | Vercel | 自動化部署與託管 |
 
@@ -148,7 +164,7 @@ flowchart TB
     B --> C[啟用 Firestore Database]
     C --> D[選擇測試模式]
     D --> E[啟用 Authentication]
-    E --> F[開啟匿名登入]
+    E --> F[開啟 Email/密碼登入]
     F --> G[取得設定金鑰]
     G --> H[貼到 App.jsx]
 ```
@@ -156,12 +172,14 @@ flowchart TB
 ### 第三階段：程式開發
 ```mermaid
 flowchart TB
-    A[設計 UI 介面] --> B[實作登入功能]
-    B --> C[實作訂單列表]
-    C --> D[實作新增訂單]
-    D --> E[實作 QR 掃描]
-    E --> F[實作派車功能]
-    F --> G[測試與除錯]
+    A[設計 UI 介面] --> B[實作 Email 登入/註冊]
+    B --> C[實作使用者角色系統]
+    C --> D[實作訂單列表]
+    D --> E[實作新增/編輯訂單]
+    E --> F[實作 QR 掃描]
+    F --> G[實作派車功能]
+    G --> H[實作操作紀錄]
+    H --> I[測試與除錯]
 ```
 
 ### 第四階段：部署上線
@@ -198,17 +216,25 @@ WH-QR-Code/
 ```mermaid
 flowchart TB
     subgraph App.jsx
-        A[Firebase 設定] --> B[LoginScreen 元件]
-        A --> C[OrderCard 元件]
-        A --> D[ScannerModal 元件]
-        A --> E[App 主元件]
+        A[Firebase 設定] --> B[常數定義]
+        B --> C[USER_ROLES 角色定義]
+        B --> D[ROLE_PERMISSIONS 權限定義]
 
-        B --> F[匿名登入邏輯]
-        C --> G[訂單卡片顯示]
-        D --> H[QR 掃描功能]
-        D --> I[表單輸入]
-        E --> J[訂單列表管理]
-        E --> K[派車功能]
+        A --> E[LoginScreen 元件]
+        A --> F[OrderCard 元件]
+        A --> G[ScannerModal 元件]
+        A --> H[OrderDetailModal 元件]
+        A --> I[App 主元件]
+
+        E --> J[Email 登入/註冊]
+        F --> K[訂單卡片顯示]
+        G --> L[QR 掃描功能]
+        G --> M[表單輸入]
+        H --> N[訂單詳情/編輯]
+        I --> O[訂單列表管理]
+        I --> P[派車功能]
+        I --> Q[使用者管理 Modal]
+        I --> R[操作紀錄 Modal]
     end
 ```
 
@@ -261,6 +287,10 @@ git push
 erDiagram
     warehouse_orders {
         string id PK "文件 ID (自動產生)"
+        string orderNumber "訂單編號 ORD-YYYYMMDD-XXX"
+        string workOrderNumber "工單編號"
+        string orderDate "訂單建立日"
+        string expectedShipDate "預計出貨日"
         string customerName "客戶名稱"
         string productName "產品名稱"
         string poNumber "採購單號"
@@ -270,8 +300,34 @@ erDiagram
         number quantity "數量"
         string fluteType "楞別"
         string status "狀態: pending/dispatched"
+        string createdBy "建立者"
+        string updatedBy "修改者"
+        string dispatchedBy "派車者"
+        timestamp createdAt "建立時間"
+        timestamp updatedAt "修改時間"
+        timestamp dispatchedAt "派車時間"
+    }
+
+    users {
+        string id PK "使用者 UID"
+        string email "Email"
+        string displayName "顯示名稱"
+        string role "角色: admin/warehouse/driver"
         timestamp createdAt "建立時間"
     }
+
+    activity_logs {
+        string id PK "紀錄 ID"
+        string userId "使用者 ID"
+        string userEmail "使用者 Email"
+        string userName "使用者名稱"
+        string action "操作類型"
+        string details "操作詳情"
+        timestamp createdAt "建立時間"
+    }
+
+    users ||--o{ warehouse_orders : "建立"
+    users ||--o{ activity_logs : "產生"
 ```
 
 ### 資料同步流程
@@ -325,14 +381,67 @@ flowchart TB
 
 ---
 
-## 未來擴充方向
+## 使用者管理系統
 
-- [ ] 使用者帳號系統 (Email 登入)
-- [ ] 訂單搜尋與篩選
+### 角色權限表
+| 權限 | 管理員 (admin) | 倉管 (warehouse) | 司機 (driver) |
+|------|:-------------:|:----------------:|:-------------:|
+| 新增訂單 | ✅ | ✅ | ❌ |
+| 編輯訂單 | ✅ | ✅ | ❌ |
+| 刪除訂單 | ✅ | ❌ | ❌ |
+| 派車 | ✅ | ✅ | ❌ |
+| 管理使用者 | ✅ | ❌ | ❌ |
+| 查看操作紀錄 | ✅ | ❌ | ❌ |
+
+### 使用者管理流程
+```mermaid
+flowchart TB
+    A[第一位註冊] --> B[自動成為管理員]
+    C[後續註冊] --> D[預設為司機角色]
+    B --> E[管理員可變更角色]
+    D --> E
+    E --> F{選擇角色}
+    F --> G[管理員 - 完整權限]
+    F --> H[倉管 - 操作權限]
+    F --> I[司機 - 檢視權限]
+```
+
+### 操作紀錄追蹤
+系統會自動記錄以下操作：
+- 📝 **註冊** - 新使用者註冊
+- ➕ **新增訂單** - 誰新增了什麼訂單
+- ✏️ **修改訂單** - 誰修改了什麼訂單
+- 🗑️ **刪除訂單** - 誰刪除了什麼訂單
+- 🚚 **派車** - 誰派了哪些訂單
+- 👤 **變更角色** - 誰的角色被變更
+
+---
+
+## 功能清單
+
+### ✅ 已完成功能
+- [x] QR Code 掃描入庫
+- [x] 圖片上傳掃描
+- [x] 手動輸入表單
+- [x] 訂單列表顯示
+- [x] 訂單搜尋與篩選
+- [x] 日期篩選 (今天/本週/本月)
+- [x] 訂單詳情檢視
+- [x] 訂單編輯
+- [x] 批次選擇派車
+- [x] Email/密碼登入註冊
+- [x] 使用者角色系統
+- [x] 角色權限控制
+- [x] 操作紀錄追蹤
+- [x] 使用者管理介面
+
+### 🔮 未來擴充方向
 - [ ] 匯出 Excel 報表
 - [ ] 多倉庫支援
 - [ ] 庫存統計圖表
 - [ ] 推播通知
+- [ ] LINE 通知整合
+- [ ] 深色模式
 
 ---
 
