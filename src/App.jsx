@@ -177,21 +177,40 @@ const ScannerModal = ({ onClose, onSave }) => {
 
   // 儲存訂單並返回列表
   const handleSaveAndClose = async () => {
-    if (!form.customerName) return alert('請輸入客戶名稱');
-    await onSave(form);
-    handleClose();
+    console.log('handleSaveAndClose clicked', form);
+    if (!form.customerName) {
+      alert('請輸入客戶名稱');
+      return;
+    }
+    try {
+      await onSave(form);
+      handleClose();
+    } catch (error) {
+      console.error('儲存失敗:', error);
+      alert('儲存失敗: ' + error.message);
+    }
   };
 
   // 儲存訂單並繼續下一筆
   const handleSaveAndNext = async () => {
-    if (!form.customerName) return alert('請輸入客戶名稱');
-    await onSave(form);
-    // 清空表單，回到掃描模式
-    setForm({
-      customerName: '', productName: '', poNumber: '',
-      length: '', width: '', height: '', quantity: '', fluteType: ''
-    });
-    setMode('scan');
+    console.log('handleSaveAndNext clicked', form);
+    if (!form.customerName) {
+      alert('請輸入客戶名稱');
+      return;
+    }
+    try {
+      await onSave(form);
+      // 清空表單，回到掃描模式
+      setForm({
+        customerName: '', productName: '', poNumber: '',
+        length: '', width: '', height: '', quantity: '', fluteType: ''
+      });
+      setMode('scan');
+      alert('已儲存！請繼續掃描下一筆');
+    } catch (error) {
+      console.error('儲存失敗:', error);
+      alert('儲存失敗: ' + error.message);
+    }
   };
 
   useEffect(() => {
