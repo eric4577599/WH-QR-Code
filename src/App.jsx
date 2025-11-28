@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, updateDoc, doc, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { Camera, Package, Truck, Trash2, LogOut, Save, X, CheckCircle, Box } from 'lucide-react';
+import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, doc, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Camera, Package, Truck, Trash2, LogOut, Save, X, CheckCircle, Box, Plus, Image } from 'lucide-react';
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -80,51 +81,179 @@ const OrderCard = ({ order, isSelected, onSelect, onDelete }) => (
   </div>
 );
 
-// --- 新增訂單表單 ---
-const AddOrderForm = ({ onClose, onSave }) => {
+// --- QR Code 掃描器 + 訂單表單 ---
+const ScannerModal = ({ onClose, onSave }) => {
+  const [mode, setMode] = useState('scan'); // 'scan' | 'form'
+  const [scanning, setScanning] = useState(false);
   const [form, setForm] = useState({
     customerName: '', productName: '', poNumber: '',
     length: '', width: '', height: '', quantity: '', fluteType: ''
   });
+  const html5QrCodeRef = useRef(null);
 
+  // 啟動相機掃描
+  const startScanner = async () => {
+    try {
+      setScanning(true);
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      html5QrCodeRef.current = html5QrCode;
+
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          // 掃描成功
+          handleScanSuccess(decodedText);
+          stopScanner();
+        },
+        () => {} // 忽略掃描錯誤
+      );
+    } catch (err) {
+      console.error("相機啟動失敗:", err);
+      alert("無法開啟相機，請確認已授權相機權限，或使用上傳圖片功能");
+      setScanning(false);
+    }
+  };
+
+  // 停止掃描
+  const stopScanner = async () => {
+    if (html5QrCodeRef.current) {
+      try {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current = null;
+      } catch (err) {
+        console.error("停止掃描錯誤:", err);
+      }
+    }
+    setScanning(false);
+  };
+
+  // 處理掃描結果
+  const handleScanSuccess = (decodedText) => {
+    try {
+      const data = JSON.parse(decodedText);
+      setForm({
+        customerName: data.customerName || data.customer || '',
+        productName: data.productName || data.product || '',
+        poNumber: data.poNumber || data.po || '',
+        length: data.length || data.l || '',
+        width: data.width || data.w || '',
+        height: data.height || data.h || '',
+        quantity: data.quantity || data.qty || '',
+        fluteType: data.fluteType || data.flute || ''
+      });
+      setMode('form');
+    } catch {
+      // 如果不是 JSON，直接當作 PO 號碼
+      setForm(prev => ({ ...prev, poNumber: decodedText }));
+      setMode('form');
+    }
+  };
+
+  // 上傳圖片掃描
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const html5QrCode = new Html5Qrcode("qr-reader-file");
+      const result = await html5QrCode.scanFile(file, true);
+      handleScanSuccess(result);
+    } catch (err) {
+      alert("無法識別 QR Code，請確認圖片清晰");
+    }
+  };
+
+  // 關閉時清理
+  const handleClose = () => {
+    stopScanner();
+    onClose();
+  };
+
+  // 儲存訂單
   const handleSubmit = async () => {
     if (!form.customerName) return alert('請輸入客戶名稱');
     await onSave(form);
-    onClose();
+    handleClose();
   };
+
+  useEffect(() => {
+    return () => { stopScanner(); };
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-xl font-bold">新增訂單</h2>
-          <button onClick={onClose} className="p-2"><X /></button>
+          <h2 className="text-xl font-bold">
+            {mode === 'scan' ? '掃描 QR Code' : '確認訂單資料'}
+          </h2>
+          <button onClick={handleClose} className="p-2"><X /></button>
         </div>
-        <div className="p-4 space-y-4">
-          <input className="w-full border rounded-lg p-3" placeholder="客戶名稱 *"
-            value={form.customerName} onChange={e => setForm({...form, customerName: e.target.value})} />
-          <input className="w-full border rounded-lg p-3" placeholder="產品名稱"
-            value={form.productName} onChange={e => setForm({...form, productName: e.target.value})} />
-          <input className="w-full border rounded-lg p-3" placeholder="採購單號"
-            value={form.poNumber} onChange={e => setForm({...form, poNumber: e.target.value})} />
-          <div className="grid grid-cols-3 gap-2">
-            <input className="border rounded-lg p-3" placeholder="長" type="number"
-              value={form.length} onChange={e => setForm({...form, length: e.target.value})} />
-            <input className="border rounded-lg p-3" placeholder="寬" type="number"
-              value={form.width} onChange={e => setForm({...form, width: e.target.value})} />
-            <input className="border rounded-lg p-3" placeholder="高" type="number"
-              value={form.height} onChange={e => setForm({...form, height: e.target.value})} />
+
+        {mode === 'scan' ? (
+          <div className="p-4">
+            {/* 掃描區域 */}
+            <div id="qr-reader" className="w-full rounded-lg overflow-hidden mb-4"></div>
+            <div id="qr-reader-file" className="hidden"></div>
+
+            {!scanning ? (
+              <div className="space-y-3">
+                <button onClick={startScanner}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+                  <Camera className="w-5 h-5" /> 開啟相機掃描
+                </button>
+
+                <label className="w-full bg-slate-200 text-slate-700 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer">
+                  <Image className="w-5 h-5" /> 上傳 QR Code 圖片
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                </label>
+
+                <button onClick={() => setMode('form')}
+                  className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+                  <Plus className="w-5 h-5" /> 手動輸入
+                </button>
+              </div>
+            ) : (
+              <button onClick={stopScanner}
+                className="w-full bg-red-500 text-white py-3 rounded-lg font-semibold">
+                停止掃描
+              </button>
+            )}
           </div>
-          <input className="w-full border rounded-lg p-3" placeholder="數量" type="number"
-            value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} />
-          <input className="w-full border rounded-lg p-3" placeholder="楞別 (如: AB楞)"
-            value={form.fluteType} onChange={e => setForm({...form, fluteType: e.target.value})} />
-        </div>
-        <div className="p-4 border-t">
-          <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
-            <Save className="w-5 h-5" /> 儲存訂單
-          </button>
-        </div>
+        ) : (
+          <div className="p-4 space-y-4">
+            <input className="w-full border rounded-lg p-3" placeholder="客戶名稱 *"
+              value={form.customerName} onChange={e => setForm({...form, customerName: e.target.value})} />
+            <input className="w-full border rounded-lg p-3" placeholder="產品名稱"
+              value={form.productName} onChange={e => setForm({...form, productName: e.target.value})} />
+            <input className="w-full border rounded-lg p-3" placeholder="採購單號"
+              value={form.poNumber} onChange={e => setForm({...form, poNumber: e.target.value})} />
+            <div className="grid grid-cols-3 gap-2">
+              <input className="border rounded-lg p-3" placeholder="長" type="number"
+                value={form.length} onChange={e => setForm({...form, length: e.target.value})} />
+              <input className="border rounded-lg p-3" placeholder="寬" type="number"
+                value={form.width} onChange={e => setForm({...form, width: e.target.value})} />
+              <input className="border rounded-lg p-3" placeholder="高" type="number"
+                value={form.height} onChange={e => setForm({...form, height: e.target.value})} />
+            </div>
+            <input className="w-full border rounded-lg p-3" placeholder="數量" type="number"
+              value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} />
+            <input className="w-full border rounded-lg p-3" placeholder="楞別 (如: AB楞)"
+              value={form.fluteType} onChange={e => setForm({...form, fluteType: e.target.value})} />
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setMode('scan')}
+                className="flex-1 bg-slate-200 text-slate-700 py-3 rounded-lg font-semibold">
+                重新掃描
+              </button>
+              <button onClick={handleSubmit}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+                <Save className="w-5 h-5" /> 儲存
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -270,9 +399,9 @@ export default function App() {
         <Camera className="w-6 h-6" />
       </button>
 
-      {/* 新增表單 */}
+      {/* 掃描器 / 新增表單 */}
       {showAddForm && (
-        <AddOrderForm onClose={() => setShowAddForm(false)} onSave={handleAddOrder} />
+        <ScannerModal onClose={() => setShowAddForm(false)} onSave={handleAddOrder} />
       )}
     </div>
   );
