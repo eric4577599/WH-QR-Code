@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 確保手機操作順暢 */
+body {
+  overscroll-behavior-y: none;
+}
