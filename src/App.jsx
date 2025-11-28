@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, doc, deleteDoc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, collection, addDoc, query, onSnapshot, orderBy, doc, deleteDoc, updateDoc, serverTimestamp, writeBatch, getDoc, setDoc, getDocs, where } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, Package, Truck, Trash2, LogOut, Save, X, CheckCircle, Box, Plus, Image, Search, Calendar, Edit3, ChevronDown, Check } from 'lucide-react';
+import { Camera, Package, Truck, Trash2, LogOut, Save, X, CheckCircle, Box, Plus, Image, Search, Calendar, Edit3, ChevronDown, Check, User, Users, Settings, History, Shield, Eye, EyeOff, Mail, Lock } from 'lucide-react';
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -21,27 +21,144 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const ORDERS_COLLECTION = 'warehouse_orders';
+const USERS_COLLECTION = 'users';
+const ACTIVITY_LOGS_COLLECTION = 'activity_logs';
+
+// 使用者角色定義
+const USER_ROLES = {
+  admin: { label: '管理員', color: 'red', icon: Shield },
+  warehouse: { label: '倉管', color: 'blue', icon: Package },
+  driver: { label: '司機', color: 'green', icon: Truck }
+};
+
+// 角色權限定義
+const ROLE_PERMISSIONS = {
+  admin: { canManageUsers: true, canAddOrder: true, canEditOrder: true, canDeleteOrder: true, canDispatch: true, canViewLogs: true },
+  warehouse: { canManageUsers: false, canAddOrder: true, canEditOrder: true, canDeleteOrder: false, canDispatch: true, canViewLogs: false },
+  driver: { canManageUsers: false, canAddOrder: false, canEditOrder: false, canDeleteOrder: false, canDispatch: false, canViewLogs: false }
+};
 
 // --- 登入畫面 ---
-const LoginScreen = ({ onLogin, loading }) => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-white p-4">
-    <div className="bg-white p-8 rounded-2xl border-2 border-blue-600 w-full max-w-sm text-center shadow-lg">
-      <div className="border-2 border-blue-600 p-4 rounded-full inline-block mb-4">
-        <Package className="w-10 h-10 text-blue-600" />
+const LoginScreen = ({ onLogin, onRegister, loading }) => {
+  const [isRegister, setIsRegister] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('請輸入 Email 和密碼');
+      return;
+    }
+
+    if (isRegister) {
+      if (password !== confirmPassword) {
+        setError('兩次密碼輸入不一致');
+        return;
+      }
+      if (password.length < 6) {
+        setError('密碼至少需要 6 個字元');
+        return;
+      }
+      if (!displayName) {
+        setError('請輸入姓名');
+        return;
+      }
+      await onRegister(email, password, displayName);
+    } else {
+      await onLogin(email, password);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-blue-50 to-white p-4">
+      <div className="bg-white p-8 rounded-2xl border-2 border-blue-600 w-full max-w-sm shadow-lg">
+        <div className="text-center mb-6">
+          <div className="border-2 border-blue-600 p-4 rounded-full inline-block mb-4">
+            <Package className="w-10 h-10 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">倉儲掃描通</h1>
+          <p className="text-gray-500 text-sm">{isRegister ? '建立新帳號' : '登入系統'}</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {isRegister && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">姓名 *</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+                  className="w-full border-2 border-gray-300 rounded-lg p-3 pl-10 focus:border-blue-600 focus:outline-none"
+                  placeholder="您的姓名" />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Email *</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                className="w-full border-2 border-gray-300 rounded-lg p-3 pl-10 focus:border-blue-600 focus:outline-none"
+                placeholder="your@email.com" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">密碼 *</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                className="w-full border-2 border-gray-300 rounded-lg p-3 pl-10 pr-10 focus:border-blue-600 focus:outline-none"
+                placeholder="••••••" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+
+          {isRegister && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">確認密碼 *</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input type={showPassword ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full border-2 border-gray-300 rounded-lg p-3 pl-10 focus:border-blue-600 focus:outline-none"
+                  placeholder="••••••" />
+              </div>
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50">
+            {loading ? '處理中...' : (isRegister ? '註冊帳號' : '登入')}
+          </button>
+        </form>
+
+        <div className="mt-4 text-center">
+          <button onClick={() => { setIsRegister(!isRegister); setError(''); }}
+            className="text-blue-600 hover:underline text-sm">
+            {isRegister ? '已有帳號？點此登入' : '沒有帳號？點此註冊'}
+          </button>
+        </div>
       </div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">倉儲掃描通</h1>
-      <p className="text-gray-600 mb-6 text-sm">多人協作 | 掃描入庫 | 派車管理</p>
-      <button
-        onClick={onLogin}
-        disabled={loading}
-        className="w-full border-2 border-blue-600 bg-white text-blue-600 py-3 rounded-lg font-semibold hover:bg-blue-600 hover:text-white active:scale-95 transition-all disabled:opacity-50"
-      >
-        {loading ? '登入中...' : '開始使用'}
-      </button>
+      <p className="mt-6 text-xs text-gray-400">© 2024 Warehouse Scanner System</p>
     </div>
-    <p className="mt-6 text-xs text-gray-400">© 2024 Warehouse Scanner System</p>
-  </div>
-);
+  );
+};
 
 // --- 訂單卡片 ---
 const OrderCard = ({ order, isSelected, onSelect, onDelete, onDetail }) => (
@@ -613,6 +730,7 @@ const OrderDetailModal = ({ order, onClose, onSave, onDelete }) => {
 // --- 主應用程式 ---
 export default function App() {
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null); // 使用者資料 (含角色)
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -621,11 +739,30 @@ export default function App() {
   const [searchText, setSearchText] = useState(''); // 搜尋文字
   const [dateFilter, setDateFilter] = useState('all'); // 日期篩選: all, today, week, month
   const [showDateMenu, setShowDateMenu] = useState(false); // 日期選單開關
+  const [showUserManagement, setShowUserManagement] = useState(false); // 使用者管理
+  const [showActivityLogs, setShowActivityLogs] = useState(false); // 操作紀錄
+  const [allUsers, setAllUsers] = useState([]); // 所有使用者列表
+  const [activityLogs, setActivityLogs] = useState([]); // 操作紀錄列表
+
+  // 取得目前使用者權限
+  const permissions = userProfile?.role ? ROLE_PERMISSIONS[userProfile.role] : ROLE_PERMISSIONS.driver;
 
   // 監聽登入狀態
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        // 取得使用者資料
+        const userDoc = await getDoc(doc(db, USERS_COLLECTION, currentUser.uid));
+        if (userDoc.exists()) {
+          setUserProfile(userDoc.data());
+        } else {
+          // 新使用者，預設為 driver
+          setUserProfile({ email: currentUser.email, displayName: currentUser.email?.split('@')[0], role: 'driver' });
+        }
+      } else {
+        setUserProfile(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
@@ -642,13 +779,83 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // 監聽使用者列表 (管理員專用)
+  useEffect(() => {
+    if (!user || !permissions.canManageUsers) return;
+    const unsubscribe = onSnapshot(collection(db, USERS_COLLECTION), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllUsers(data);
+    });
+    return () => unsubscribe();
+  }, [user, permissions.canManageUsers]);
+
+  // 監聽操作紀錄 (管理員專用)
+  useEffect(() => {
+    if (!user || !permissions.canViewLogs) return;
+    const q = query(collection(db, ACTIVITY_LOGS_COLLECTION), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setActivityLogs(data);
+    });
+    return () => unsubscribe();
+  }, [user, permissions.canViewLogs]);
+
+  // 記錄操作
+  const logActivity = async (action, details) => {
+    try {
+      await addDoc(collection(db, ACTIVITY_LOGS_COLLECTION), {
+        userId: user?.uid,
+        userEmail: userProfile?.email || user?.email,
+        userName: userProfile?.displayName || '未知',
+        action,
+        details,
+        createdAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error('記錄失敗:', e);
+    }
+  };
+
   // 登入
-  const handleLogin = async () => {
+  const handleLogin = async (email, password) => {
     setLoading(true);
     try {
-      await signInAnonymously(auth);
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
-      alert('登入失敗: ' + error.message);
+      let msg = '登入失敗';
+      if (error.code === 'auth/user-not-found') msg = '此帳號不存在';
+      else if (error.code === 'auth/wrong-password') msg = '密碼錯誤';
+      else if (error.code === 'auth/invalid-email') msg = 'Email 格式錯誤';
+      else if (error.code === 'auth/invalid-credential') msg = '帳號或密碼錯誤';
+      alert(msg);
+    }
+    setLoading(false);
+  };
+
+  // 註冊
+  const handleRegister = async (email, password, displayName) => {
+    setLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // 第一位註冊者為管理員，其他為司機
+      const usersSnapshot = await getDocs(collection(db, USERS_COLLECTION));
+      const role = usersSnapshot.empty ? 'admin' : 'driver';
+
+      // 建立使用者資料
+      await setDoc(doc(db, USERS_COLLECTION, userCredential.user.uid), {
+        email,
+        displayName,
+        role,
+        createdAt: serverTimestamp()
+      });
+
+      await logActivity('註冊', `新使用者 ${displayName} (${email}) 註冊，角色: ${USER_ROLES[role].label}`);
+    } catch (error) {
+      let msg = '註冊失敗';
+      if (error.code === 'auth/email-already-in-use') msg = '此 Email 已被使用';
+      else if (error.code === 'auth/weak-password') msg = '密碼強度不足';
+      else if (error.code === 'auth/invalid-email') msg = 'Email 格式錯誤';
+      alert(msg);
     }
     setLoading(false);
   };
@@ -656,33 +863,64 @@ export default function App() {
   // 登出
   const handleLogout = () => signOut(auth);
 
+  // 更新使用者角色 (管理員專用)
+  const handleUpdateUserRole = async (userId, newRole, userName) => {
+    if (!permissions.canManageUsers) return;
+    try {
+      await updateDoc(doc(db, USERS_COLLECTION, userId), { role: newRole });
+      await logActivity('變更角色', `將 ${userName} 的角色變更為 ${USER_ROLES[newRole].label}`);
+      alert('角色已更新');
+    } catch (error) {
+      alert('更新失敗: ' + error.message);
+    }
+  };
+
   // 新增訂單
   const handleAddOrder = async (form) => {
-    await addDoc(collection(db, ORDERS_COLLECTION), {
+    if (!permissions.canAddOrder) {
+      alert('您沒有新增訂單的權限');
+      return;
+    }
+    const docRef = await addDoc(collection(db, ORDERS_COLLECTION), {
       ...form,
       length: Number(form.length) || 0,
       width: Number(form.width) || 0,
       height: Number(form.height) || 0,
       quantity: Number(form.quantity) || 0,
       status: 'pending',
+      createdBy: userProfile?.displayName || user?.email,
       createdAt: serverTimestamp()
     });
+    await logActivity('新增訂單', `訂單 ${form.orderNumber || docRef.id} - ${form.customerName}`);
   };
 
   // 更新訂單
   const handleUpdateOrder = async (id, form) => {
+    if (!permissions.canEditOrder) {
+      alert('您沒有修改訂單的權限');
+      return;
+    }
     await updateDoc(doc(db, ORDERS_COLLECTION, id), {
       ...form,
       length: Number(form.length) || 0,
       width: Number(form.width) || 0,
       height: Number(form.height) || 0,
-      quantity: Number(form.quantity) || 0
+      quantity: Number(form.quantity) || 0,
+      updatedBy: userProfile?.displayName || user?.email,
+      updatedAt: serverTimestamp()
     });
+    await logActivity('修改訂單', `訂單 ${form.orderNumber || id} - ${form.customerName}`);
   };
 
   // 刪除訂單
   const handleDelete = async (id) => {
+    if (!permissions.canDeleteOrder) {
+      alert('您沒有刪除訂單的權限');
+      return;
+    }
+    const order = orders.find(o => o.id === id);
     await deleteDoc(doc(db, ORDERS_COLLECTION, id));
+    await logActivity('刪除訂單', `訂單 ${order?.orderNumber || id} - ${order?.customerName || '未知'}`);
   };
 
   // 篩選訂單
@@ -740,16 +978,24 @@ export default function App() {
 
   // 派車
   const handleDispatch = async () => {
+    if (!permissions.canDispatch) {
+      alert('您沒有派車的權限');
+      return;
+    }
     if (selectedIds.length === 0) return alert('請先選取訂單');
     const dispatchId = 'D-' + Date.now().toString().slice(-6);
     const batch = writeBatch(db);
+    const dispatchedOrders = orders.filter(o => selectedIds.includes(o.id));
     selectedIds.forEach(id => {
       batch.update(doc(db, ORDERS_COLLECTION, id), {
         status: 'dispatched',
-        dispatchId
+        dispatchId,
+        dispatchedBy: userProfile?.displayName || user?.email,
+        dispatchedAt: serverTimestamp()
       });
     });
     await batch.commit();
+    await logActivity('派車', `派車單號 ${dispatchId}，共 ${selectedIds.length} 筆訂單: ${dispatchedOrders.map(o => o.orderNumber || o.id).join(', ')}`);
     setSelectedIds([]);
     alert(`派車完成！單號: ${dispatchId}`);
   };
@@ -764,8 +1010,11 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} loading={loading} />;
+    return <LoginScreen onLogin={handleLogin} onRegister={handleRegister} loading={loading} />;
   }
+
+  const RoleIcon = userProfile?.role ? USER_ROLES[userProfile.role].icon : User;
+  const roleColor = userProfile?.role ? USER_ROLES[userProfile.role].color : 'gray';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -778,14 +1027,32 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">倉儲掃描通</h1>
-              <p className="text-xs text-gray-500">Warehouse Scanner</p>
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-${roleColor}-100 text-${roleColor}-700 border border-${roleColor}-300`}>
+                  <RoleIcon className="w-3 h-3" />
+                  {USER_ROLES[userProfile?.role || 'driver'].label}
+                </span>
+                <span className="text-xs text-gray-500">{userProfile?.displayName || user?.email}</span>
+              </div>
             </div>
           </div>
-          <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-gray-900 border border-gray-300 rounded-lg hover:border-gray-500 transition-all">
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {permissions.canManageUsers && (
+              <button onClick={() => setShowUserManagement(true)} className="p-2 text-gray-500 hover:text-blue-600 border border-gray-300 rounded-lg hover:border-blue-600 transition-all" title="使用者管理">
+                <Users className="w-5 h-5" />
+              </button>
+            )}
+            {permissions.canViewLogs && (
+              <button onClick={() => setShowActivityLogs(true)} className="p-2 text-gray-500 hover:text-blue-600 border border-gray-300 rounded-lg hover:border-blue-600 transition-all" title="操作紀錄">
+                <History className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-gray-900 border border-gray-300 rounded-lg hover:border-gray-500 transition-all" title="登出">
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
-        {selectedIds.length > 0 && (
+        {selectedIds.length > 0 && permissions.canDispatch && (
           <button onClick={handleDispatch}
             className="mt-3 w-full border-2 border-green-600 bg-green-600 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-all">
             <Truck className="w-5 h-5" /> 合併派車 ({selectedIds.length} 筆訂單)
@@ -876,13 +1143,15 @@ export default function App() {
         )}
       </main>
 
-      {/* 底部新增按鈕 */}
-      <button
-        onClick={() => setShowAddForm(true)}
-        className="fixed bottom-6 right-6 bg-white border-2 border-blue-600 text-blue-600 p-4 rounded-full shadow-lg hover:bg-blue-600 hover:text-white active:scale-95 transition-all z-50"
-      >
-        <Camera className="w-6 h-6" />
-      </button>
+      {/* 底部新增按鈕 - 只有有權限的人才顯示 */}
+      {permissions.canAddOrder && (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="fixed bottom-6 right-6 bg-white border-2 border-blue-600 text-blue-600 p-4 rounded-full shadow-lg hover:bg-blue-600 hover:text-white active:scale-95 transition-all z-50"
+        >
+          <Camera className="w-6 h-6" />
+        </button>
+      )}
 
       {/* 掃描器 / 新增表單 */}
       {showAddForm && (
@@ -897,6 +1166,88 @@ export default function App() {
           onSave={handleUpdateOrder}
           onDelete={handleDelete}
         />
+      )}
+
+      {/* 使用者管理 Modal */}
+      {showUserManagement && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg border-2 border-blue-600 w-full max-w-lg max-h-[90vh] overflow-hidden shadow-xl">
+            <div className="flex justify-between items-center p-4 border-b-2 border-blue-600">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Users className="w-6 h-6 text-blue-600" /> 使用者管理
+              </h2>
+              <button onClick={() => setShowUserManagement(false)} className="p-2 text-gray-500 hover:text-gray-900 border border-gray-300 rounded hover:border-gray-500 transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[70vh] p-4 space-y-3">
+              {allUsers.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">尚無使用者</p>
+              ) : (
+                allUsers.map(u => (
+                  <div key={u.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-gray-900">{u.displayName || '未設定姓名'}</p>
+                        <p className="text-sm text-gray-500">{u.email}</p>
+                      </div>
+                      <select
+                        value={u.role || 'driver'}
+                        onChange={e => handleUpdateUserRole(u.id, e.target.value, u.displayName)}
+                        className={`border-2 rounded-lg px-3 py-1 text-sm font-semibold ${
+                          u.role === 'admin' ? 'border-red-300 bg-red-50 text-red-700' :
+                          u.role === 'warehouse' ? 'border-blue-300 bg-blue-50 text-blue-700' :
+                          'border-green-300 bg-green-50 text-green-700'
+                        }`}
+                      >
+                        <option value="admin">管理員</option>
+                        <option value="warehouse">倉管</option>
+                        <option value="driver">司機</option>
+                      </select>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      註冊時間: {u.createdAt?.toDate?.()?.toLocaleString('zh-TW') || '-'}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 操作紀錄 Modal */}
+      {showActivityLogs && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg border-2 border-blue-600 w-full max-w-lg max-h-[90vh] overflow-hidden shadow-xl">
+            <div className="flex justify-between items-center p-4 border-b-2 border-blue-600">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <History className="w-6 h-6 text-blue-600" /> 操作紀錄
+              </h2>
+              <button onClick={() => setShowActivityLogs(false)} className="p-2 text-gray-500 hover:text-gray-900 border border-gray-300 rounded hover:border-gray-500 transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[70vh] p-4 space-y-2">
+              {activityLogs.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">尚無操作紀錄</p>
+              ) : (
+                activityLogs.map(log => (
+                  <div key={log.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                    <div className="flex justify-between items-start">
+                      <span className="font-semibold text-gray-900">{log.action}</span>
+                      <span className="text-xs text-gray-400">
+                        {log.createdAt?.toDate?.()?.toLocaleString('zh-TW') || '-'}
+                      </span>
+                    </div>
+                    <p className="text-gray-600 mt-1">{log.details}</p>
+                    <p className="text-xs text-gray-400 mt-1">操作者: {log.userName} ({log.userEmail})</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
