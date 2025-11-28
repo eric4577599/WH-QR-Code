@@ -175,11 +175,23 @@ const ScannerModal = ({ onClose, onSave }) => {
     onClose();
   };
 
-  // 儲存訂單
-  const handleSubmit = async () => {
+  // 儲存訂單並返回列表
+  const handleSaveAndClose = async () => {
     if (!form.customerName) return alert('請輸入客戶名稱');
     await onSave(form);
     handleClose();
+  };
+
+  // 儲存訂單並繼續下一筆
+  const handleSaveAndNext = async () => {
+    if (!form.customerName) return alert('請輸入客戶名稱');
+    await onSave(form);
+    // 清空表單，回到掃描模式
+    setForm({
+      customerName: '', productName: '', poNumber: '',
+      length: '', width: '', height: '', quantity: '', fluteType: ''
+    });
+    setMode('scan');
   };
 
   useEffect(() => {
@@ -267,14 +279,20 @@ const ScannerModal = ({ onClose, onSave }) => {
               </div>
             </div>
 
-            <div className="flex gap-3 pt-4 border-t border-gray-200">
+            <div className="space-y-3 pt-4 border-t border-gray-200">
+              <div className="flex gap-3">
+                <button onClick={handleSaveAndNext}
+                  className="flex-1 border-2 border-blue-600 bg-blue-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
+                  <Plus className="w-5 h-5" /> 儲存並下一筆
+                </button>
+                <button onClick={handleSaveAndClose}
+                  className="flex-1 border-2 border-green-600 bg-green-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-all">
+                  <Save className="w-5 h-5" /> 儲存並返回
+                </button>
+              </div>
               <button onClick={() => setMode('scan')}
-                className="flex-1 border-2 border-gray-400 bg-white text-gray-700 py-3 rounded-lg font-semibold hover:border-blue-600 hover:text-blue-600 transition-all">
+                className="w-full border-2 border-gray-400 bg-white text-gray-700 py-2 rounded-lg font-medium hover:border-blue-600 hover:text-blue-600 transition-all text-sm">
                 重新掃描
-              </button>
-              <button onClick={handleSubmit}
-                className="flex-1 border-2 border-blue-600 bg-blue-600 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
-                <Save className="w-5 h-5" /> 儲存訂單
               </button>
             </div>
           </div>
