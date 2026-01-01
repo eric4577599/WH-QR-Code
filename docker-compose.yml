@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # Frontend Service (React + Nginx)
+  frontend:
+    build: .
+    restart: always
+    container_name: warehouse-scanner-frontend
+    ports:
+      - "8081:80"
+    networks:
+      - warehouse-net
+
+  # Cloudflare Tunnel Service without backend
+  # Ensure you have your TUNNEL_TOKEN in your .env file or environment
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    container_name: warehouse-tunnel
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    networks:
+      - warehouse-net
+    depends_on:
+      - frontend
+
+networks:
+  warehouse-net:
+    driver: bridge
